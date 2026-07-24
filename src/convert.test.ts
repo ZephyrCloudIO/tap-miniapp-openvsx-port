@@ -1,11 +1,13 @@
 import { createWriteStream } from 'node:fs';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, it } from '@rstest/core';
 import yazl from 'yazl';
 import { convertOpenVsxExtension } from './convert.js';
-import { sha256File } from './digest.js';
+import { sha256Bytes, sha256File } from './digest.js';
 import { CONVERTER_PACKAGE, CONVERTER_VERSION } from './version.js';
 
 it('stages an embedded Marketplace webview without executing the extension', async () => {
@@ -32,6 +34,21 @@ it('stages an embedded Marketplace webview without executing the extension', asy
     'extension/webview/dist/index.html': '<main>Visual editor</main>',
   });
   const workingDirectory = `.tap-openvsx-build/${path.basename(directory)}`;
+  const assetBytes = Buffer.from('pinned-font');
+  const assetServer = createServer((request, response) => {
+    if (request.url !== '/editor.woff2') {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'font/woff2' });
+    response.end(assetBytes);
+  });
+  assetServer.listen(0, '127.0.0.1');
+  await once(assetServer, 'listening');
+  const address = assetServer.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('The test asset server did not expose a TCP address.');
+  }
   const configPath = path.join(directory, 'tap.openvsx.json');
   await writeFile(
     configPath,
@@ -57,6 +74,13 @@ it('stages an embedded Marketplace webview without executing the extension', asy
           source: 'extension',
           root: 'extension/webview/dist',
           entry: 'index.html',
+          assets: [
+            {
+              url: `http://127.0.0.1:${String(address.port)}/editor.woff2`,
+              sha256: sha256Bytes(assetBytes),
+              path: 'assets/editor.woff2',
+            },
+          ],
         },
       },
       tap: {},
@@ -98,7 +122,24 @@ it('stages an embedded Marketplace webview without executing the extension', asy
     expect(resolved.resolved.webviewRootDirectory).toBe(
       path.resolve(workingDirectory, 'extension/extension/webview/dist'),
     );
+    expect(
+      await readFile(
+        path.resolve(
+          workingDirectory,
+          'extension/extension/webview/dist/assets/editor.woff2',
+        ),
+      ),
+    ).toEqual(assetBytes);
+    const attestation = JSON.parse(
+      await readFile(result.attestationPath, 'utf8'),
+    ) as { inputs: Record<string, string> };
+    expect(attestation.inputs['webviewAsset:0:assets/editor.woff2']).toBe(
+      sha256Bytes(assetBytes),
+    );
   } finally {
+    await new Promise<void>((resolve, reject) => {
+      assetServer.close((error) => (error ? reject(error) : resolve()));
+    });
     await rm(path.resolve(workingDirectory), {
       recursive: true,
       force: true,

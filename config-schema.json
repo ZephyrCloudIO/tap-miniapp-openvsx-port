@@ -2,6 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ZephyrCloudIO/tap-miniapp-openvsx-port/config-schema.json",
   "title": "TAP VS Code extension port recipe",
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonPath": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "not": { "enum": ["__proto__", "constructor", "prototype"] }
+      }
+    }
+  },
   "type": "object",
   "required": ["schemaVersion", "source", "conversion", "tap", "npm", "output"],
   "properties": {
@@ -128,12 +154,69 @@
               },
               "additionalProperties": false
             },
+            "assets": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "required": ["url", "sha256", "path"],
+                "properties": {
+                  "url": { "type": "string", "format": "uri" },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
             "root": { "type": "string", "minLength": 1, "maxLength": 1024 },
             "entry": { "type": "string", "minLength": 1, "maxLength": 1024 },
             "exclude": {
               "type": "array",
               "maxItems": 256,
               "items": { "type": "string", "maxLength": 1024 }
+            },
+            "rebaseRootPaths": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+              }
+            },
+            "replacements": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "required": ["search", "replace"],
+                "properties": {
+                  "search": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "replace": { "type": "string", "maxLength": 4096 },
+                  "files": {
+                    "type": "array",
+                    "maxItems": 256,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
             }
           },
           "oneOf": [
@@ -152,6 +235,132 @@
               }
             }
           ],
+          "additionalProperties": false
+        },
+        "bridge": {
+          "type": "object",
+          "required": ["kind", "viewType", "bootstrap"],
+          "properties": {
+            "kind": { "const": "vscode-custom-editor" },
+            "viewType": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "bootstrap": {
+              "type": "object",
+              "required": ["selector", "attribute", "encoding"],
+              "properties": {
+                "selector": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "attribute": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "encoding": { "const": "base64-json" },
+                "value": { "$ref": "#/$defs/jsonValue" }
+              },
+              "additionalProperties": false
+            },
+            "storage": {
+              "type": "object",
+              "required": [
+                "namespace",
+                "key",
+                "initialValue",
+                "messageBindings",
+                "bootstrapBindings"
+              ],
+              "properties": {
+                "namespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "initialValue": { "$ref": "#/$defs/jsonValue" },
+                "messageTypePath": { "$ref": "#/$defs/jsonPath" },
+                "messageBindings": {
+                  "type": "array",
+                  "maxItems": 128,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "messageType",
+                      "messageValuePath",
+                      "statePath"
+                    ],
+                    "properties": {
+                      "messageType": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "messageValuePath": { "$ref": "#/$defs/jsonPath" },
+                      "statePath": { "$ref": "#/$defs/jsonPath" },
+                      "transform": {
+                        "enum": ["identity", "byte-array-to-base64"]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "bootstrapBindings": {
+                  "type": "array",
+                  "maxItems": 128,
+                  "items": {
+                    "type": "object",
+                    "required": ["statePath", "bootstrapPath"],
+                    "properties": {
+                      "statePath": { "$ref": "#/$defs/jsonPath" },
+                      "bootstrapPath": { "$ref": "#/$defs/jsonPath" },
+                      "transform": {
+                        "enum": ["identity", "base64-to-byte-array"]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "vscodeStatePath": { "$ref": "#/$defs/jsonPath" }
+              },
+              "additionalProperties": false
+            },
+            "session": {
+              "type": "object",
+              "required": ["namespace"],
+              "properties": {
+                "namespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "additionalProperties": false
+            },
+            "webviewToHostMessages": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "hostToWebviewMessages": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "requiredHostOperations": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            }
+          },
           "additionalProperties": false
         }
       },

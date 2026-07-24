@@ -226,5 +226,5 @@ it('rejects conversion with a mismatched converter pin', async () => {
       source: path.join(directory, 'missing.vsix'),
       skipAdapter: true,
     }),
-  ).rejects.toThrow(/this converter is .*0\.1\.11/u);
+  ).rejects.toThrow(/this converter is .*0\.1\.12/u);
 });

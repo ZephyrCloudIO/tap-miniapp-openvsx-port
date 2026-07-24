@@ -1,6 +1,6 @@
 {
   "name": "@theaiplatform/openvsx-port",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Safe, reproducible intake and conversion orchestration for porting VS Code extensions into The AI Platform miniapps.",
   "type": "module",
   "license": "Apache-2.0",
@@ -58,13 +58,16 @@
     "provenance": true
   },
   "dependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.0",
+    "@rsbuild/core": "2.1.4",
+    "@rslib/core": "0.23.2",
+    "@theaiplatform/miniapp-sdk": "0.3.3",
     "unzipper": "0.12.5",
     "zod": "4.1.12"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
     "@microsoft/api-extractor": "7.58.12",
-    "@rslib/core": "0.23.2",
     "@rstest/core": "0.11.3",
     "@types/node": "24.10.1",
     "@types/unzipper": "0.10.11",

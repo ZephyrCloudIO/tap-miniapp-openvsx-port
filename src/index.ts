@@ -6,6 +6,10 @@ export {
 } from './archive.js';
 export { loadPortConfig, type LoadedPortConfig } from './config.js';
 export {
+  buildBuiltinStaticWebviewMiniapp,
+  canUseBuiltinStaticWebviewAdapter,
+} from './builtin-adapter.js';
+export {
   convertOpenVsxExtension,
   verifyConversionOutputs,
   type ConvertOptions,
@@ -22,12 +26,16 @@ export { CONVERTER_PACKAGE, CONVERTER_VERSION } from './version.js';
 export type {
   ConversionResult,
   ConverterPin,
+  BridgeBootstrapBinding,
+  BridgeMessageBinding,
+  BridgeValueTransform,
   ExtensionSourceConfig,
   ExtensionClassification,
   OpenVsxPortConfig,
   OpenVsxSourceConfig,
   PortOutputConfig,
   TrustedAdapterConfig,
+  VsCodeCustomEditorBridgeConfig,
   VisualStudioMarketplaceSourceConfig,
   VsixInspection,
 } from './types.js';
