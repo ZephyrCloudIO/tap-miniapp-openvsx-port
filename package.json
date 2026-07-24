@@ -1,7 +1,7 @@
 {
   "name": "@theaiplatform/openvsx-port",
-  "version": "0.1.10",
-  "description": "Safe, reproducible intake and conversion orchestration for porting OpenVSX extensions into The AI Platform miniapps.",
+  "version": "0.1.11",
+  "description": "Safe, reproducible intake and conversion orchestration for porting VS Code extensions into The AI Platform miniapps.",
   "type": "module",
   "license": "Apache-2.0",
   "engines": {
@@ -69,6 +69,7 @@
     "@types/node": "24.10.1",
     "@types/unzipper": "0.10.11",
     "@types/yazl": "3.3.1",
+    "ajv": "8.20.0",
     "eslint": "9.39.1",
     "prettier": "3.6.2",
     "typescript": "5.9.3",

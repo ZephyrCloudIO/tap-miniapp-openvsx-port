@@ -85,6 +85,99 @@ it('rejects duplicate targets', async () => {
   );
 });
 
+it('loads a Visual Studio Marketplace source with an embedded webview', async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), 'tap-openvsx-config-'),
+  );
+  const configPath = path.join(directory, 'tap.openvsx.json');
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      source: {
+        provider: 'visualstudio-marketplace',
+        registryUrl: 'https://marketplace.visualstudio.com',
+        extensionId: 'example.extension',
+        version: '1.2.3',
+        sha256: 'a'.repeat(64),
+      },
+      conversion: {
+        profile: 'static-webview',
+        targets: ['desktop'],
+        webview: {
+          source: 'extension',
+          root: 'extension/webview/dist',
+          entry: 'index.html',
+        },
+      },
+      tap: {},
+      npm: {
+        name: '@example/extension-miniapp',
+        version: '1.2.3-tap.1',
+        access: 'public',
+        registry: 'https://registry.npmjs.org',
+      },
+      output: {
+        workingDirectory: '.tap-openvsx-build/example/extension',
+        npmTarball: 'artifacts/extension.tgz',
+        compatibilityReport: 'artifacts/compatibility.json',
+        attestation: 'artifacts/attestation.json',
+      },
+    }),
+  );
+  const loaded = await loadPortConfig(configPath);
+  expect(loaded.value.source.provider).toBe('visualstudio-marketplace');
+  expect(loaded.value.conversion.webview?.source).toBe('extension');
+});
+
+it('rejects an ambiguous embedded and archived webview source', async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), 'tap-openvsx-config-'),
+  );
+  const configPath = path.join(directory, 'tap.openvsx.json');
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      source: {
+        provider: 'openvsx',
+        registryUrl: 'https://open-vsx.org',
+        extensionId: 'example.extension',
+        version: '1.2.3',
+        sha256: 'a'.repeat(64),
+      },
+      conversion: {
+        profile: 'static-webview',
+        targets: ['desktop'],
+        webview: {
+          source: 'extension',
+          archive: {
+            url: 'https://example.com/webview.zip',
+            version: '1.2.3',
+            sha256: 'b'.repeat(64),
+          },
+        },
+      },
+      tap: {},
+      npm: {
+        name: '@example/extension-miniapp',
+        version: '1.2.3-tap.1',
+        access: 'public',
+        registry: 'https://registry.npmjs.org',
+      },
+      output: {
+        workingDirectory: '.tap-openvsx-build/example/extension',
+        npmTarball: 'artifacts/extension.tgz',
+        compatibilityReport: 'artifacts/compatibility.json',
+        attestation: 'artifacts/attestation.json',
+      },
+    }),
+  );
+  await expect(loadPortConfig(configPath)).rejects.toThrow(
+    /cannot declare both/u,
+  );
+});
+
 it('rejects conversion with a mismatched converter pin', async () => {
   const directory = await mkdtemp(
     path.join(os.tmpdir(), 'tap-openvsx-config-'),
@@ -133,5 +226,5 @@ it('rejects conversion with a mismatched converter pin', async () => {
       source: path.join(directory, 'missing.vsix'),
       skipAdapter: true,
     }),
-  ).rejects.toThrow(/this converter is .*0\.1\.9/u);
+  ).rejects.toThrow(/this converter is .*0\.1\.11/u);
 });

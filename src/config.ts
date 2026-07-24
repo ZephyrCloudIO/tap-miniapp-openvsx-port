@@ -5,6 +5,15 @@ import type { OpenVsxPortConfig } from './types.js';
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 const boundedText = (maximum: number) => z.string().trim().min(1).max(maximum);
+const extensionIdSchema = boundedText(256).regex(
+  /^[A-Za-z0-9][A-Za-z0-9-]*\.[A-Za-z0-9][A-Za-z0-9-]*$/u,
+);
+
+const sourceIdentitySchema = {
+  extensionId: extensionIdSchema,
+  version: boundedText(128),
+  sha256: sha256Schema,
+};
 
 const adapterSchema = z
   .object({
@@ -32,17 +41,22 @@ const configSchema = z
       })
       .strict()
       .optional(),
-    source: z
-      .object({
-        provider: z.literal('openvsx'),
-        registryUrl: z.url(),
-        extensionId: boundedText(256).regex(
-          /^[A-Za-z0-9][A-Za-z0-9-]*\.[A-Za-z0-9][A-Za-z0-9-]*$/u,
-        ),
-        version: boundedText(128),
-        sha256: sha256Schema,
-      })
-      .strict(),
+    source: z.discriminatedUnion('provider', [
+      z
+        .object({
+          provider: z.literal('openvsx'),
+          registryUrl: z.url(),
+          ...sourceIdentitySchema,
+        })
+        .strict(),
+      z
+        .object({
+          provider: z.literal('visualstudio-marketplace'),
+          registryUrl: z.literal('https://marketplace.visualstudio.com'),
+          ...sourceIdentitySchema,
+        })
+        .strict(),
+    ]),
     conversion: z
       .object({
         profile: z.literal('static-webview'),
@@ -55,6 +69,7 @@ const configSchema = z
         adapter: adapterSchema.optional(),
         webview: z
           .object({
+            source: z.literal('extension').optional(),
             archive: z
               .object({
                 url: z.url(),
@@ -68,6 +83,22 @@ const configSchema = z
             exclude: z.array(z.string().max(1024)).max(256).optional(),
           })
           .strict()
+          .superRefine((webview, context) => {
+            if (webview.source === 'extension' && webview.archive) {
+              context.addIssue({
+                code: 'custom',
+                message:
+                  'conversion.webview cannot declare both source=extension and archive.',
+              });
+            }
+            if (!webview.source && !webview.archive) {
+              context.addIssue({
+                code: 'custom',
+                message:
+                  'conversion.webview must declare source=extension or archive.',
+              });
+            }
+          })
           .optional(),
       })
       .catchall(z.unknown()),
@@ -103,14 +134,14 @@ export async function loadPortConfig(
   const absolutePath = path.resolve(configPath);
   const bytes = await readFile(absolutePath);
   if (bytes.byteLength > 1024 * 1024) {
-    throw new Error('The OpenVSX port recipe exceeds 1 MiB.');
+    throw new Error('The VS Code extension port recipe exceeds 1 MiB.');
   }
   let decoded: unknown;
   try {
     decoded = JSON.parse(bytes.toString('utf8')) as unknown;
   } catch (error) {
     throw new Error(
-      `The OpenVSX port recipe is not valid JSON: ${message(error)}`,
+      `The VS Code extension port recipe is not valid JSON: ${message(error)}`,
     );
   }
   const parsed = configSchema.safeParse(decoded);
@@ -118,7 +149,7 @@ export async function loadPortConfig(
     const issues = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ');
-    throw new Error(`The OpenVSX port recipe is invalid: ${issues}`);
+    throw new Error(`The VS Code extension port recipe is invalid: ${issues}`);
   }
   return {
     path: absolutePath,

@@ -3,7 +3,11 @@ import { copyFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import type { OpenVsxSourceConfig } from './types.js';
+import type {
+  ExtensionSourceConfig,
+  OpenVsxSourceConfig,
+  VisualStudioMarketplaceSourceConfig,
+} from './types.js';
 
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
@@ -27,6 +31,36 @@ export function openVsxDownloadUrl(source: OpenVsxSourceConfig): string {
   base.search = '';
   base.hash = '';
   return base.toString();
+}
+
+export function visualStudioMarketplaceDownloadUrl(
+  source: VisualStudioMarketplaceSourceConfig,
+): string {
+  const [publisher, name] = splitExtensionId(source.extensionId);
+  const base = new URL(source.registryUrl);
+  base.pathname = [
+    '_apis',
+    'public',
+    'gallery',
+    'publishers',
+    encodeURIComponent(publisher),
+    'vsextensions',
+    encodeURIComponent(name),
+    encodeURIComponent(source.version),
+    'vspackage',
+  ].join('/');
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+}
+
+export function extensionDownloadUrl(source: ExtensionSourceConfig): string {
+  switch (source.provider) {
+    case 'openvsx':
+      return openVsxDownloadUrl(source);
+    case 'visualstudio-marketplace':
+      return visualStudioMarketplaceDownloadUrl(source);
+  }
 }
 
 export async function acquireFile(
@@ -119,4 +153,12 @@ function isLoopback(hostname: string): boolean {
   return (
     hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
   );
+}
+
+function splitExtensionId(extensionId: string): [string, string] {
+  const [publisher, name] = extensionId.split('.');
+  if (!publisher || !name) {
+    throw new Error('The extension ID must contain publisher and name.');
+  }
+  return [publisher, name];
 }

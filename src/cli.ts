@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     }
     case 'verify': {
       await verifyConversionOutputs(requiredValue(parsed, 'config'));
-      process.stdout.write('OpenVSX conversion outputs verified.\n');
+      process.stdout.write('VS Code extension conversion outputs verified.\n');
       return;
     }
     case 'help':
