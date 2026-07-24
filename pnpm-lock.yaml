@@ -1393,9 +1393,8 @@ packages:
   '@theaiplatform/miniapp-sdk@0.3.3':
     resolution:
       {
-        integrity: sha512-7FKvK+5taPWylXw6Ct1c9rSHC3lwU7jHJRcxBZNVbChm9lkqxHRx+M85y39ClV/jBL8yp+21YAgVq+CjbNk/cA==,
+        integrity: sha512-+ugB5eaRZ0IY/ccqxoUt8qZZFt/1J59VkqyN/uBKXtXNYgpu5kYDCGf3Yzl7w9XF+CFF/Gdn69AZiafS7MFfuA==,
       }
-    version: 0.3.3
     engines: { node: '>=20' }
     peerDependencies:
       '@module-federation/rsbuild-plugin': 2.8.0
