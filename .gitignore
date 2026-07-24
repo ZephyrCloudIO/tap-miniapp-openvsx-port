@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.rslib/
+coverage/
+.tap-openvsx-build/
+*.tgz

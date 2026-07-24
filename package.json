@@ -1,0 +1,79 @@
+{
+  "name": "@theaiplatform/openvsx-port",
+  "version": "0.1.8",
+  "description": "Safe, reproducible intake and conversion orchestration for porting OpenVSX extensions into The AI Platform miniapps.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "miniapp",
+    "openvsx",
+    "tap",
+    "the-ai-platform",
+    "vscode",
+    "vsix"
+  ],
+  "homepage": "https://github.com/ZephyrCloudIO/tap-miniapp-openvsx-port#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZephyrCloudIO/tap-miniapp-openvsx-port.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ZephyrCloudIO/tap-miniapp-openvsx-port/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config-schema.json": "./config-schema.json"
+  },
+  "bin": {
+    "tap-openvsx": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "config-schema.json",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "rslib build",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run pack:check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "pack:check": "pnpm pack --dry-run",
+    "prepack": "pnpm run build",
+    "test": "rstest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "yauzl": "3.2.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@microsoft/api-extractor": "7.58.12",
+    "@rslib/core": "0.23.2",
+    "@rstest/core": "0.11.3",
+    "@types/node": "24.10.1",
+    "@types/yauzl": "2.10.3",
+    "@types/yazl": "3.3.1",
+    "eslint": "9.39.1",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.48.0",
+    "yazl": "3.3.1"
+  },
+  "packageManager": "pnpm@10.33.1"
+}
