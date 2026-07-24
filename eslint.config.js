@@ -5,6 +5,8 @@ export default tseslint.config(
   {
     ignores: [
       '.rslib/**',
+      '.tap-openvsx-build/**',
+      'artifacts/**',
       'dist/**',
       'node_modules/**',
       'eslint.config.js',

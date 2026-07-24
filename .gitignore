@@ -3,4 +3,5 @@ dist/
 .rslib/
 coverage/
 .tap-openvsx-build/
+artifacts/
 *.tgz

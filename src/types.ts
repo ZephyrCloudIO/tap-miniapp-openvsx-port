@@ -42,6 +42,58 @@ export interface PortOutputConfig {
   attestation: string;
 }
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type BridgeValueTransform =
+  | 'identity'
+  | 'byte-array-to-base64'
+  | 'base64-to-byte-array';
+
+export interface BridgeMessageBinding {
+  messageType: string;
+  messageValuePath: string[];
+  statePath: string[];
+  transform?: Exclude<BridgeValueTransform, 'base64-to-byte-array'>;
+}
+
+export interface BridgeBootstrapBinding {
+  statePath: string[];
+  bootstrapPath: string[];
+  transform?: Exclude<BridgeValueTransform, 'byte-array-to-base64'>;
+}
+
+export interface VsCodeCustomEditorBridgeConfig {
+  kind: 'vscode-custom-editor';
+  viewType: string;
+  bootstrap: {
+    selector: string;
+    attribute: string;
+    encoding: 'base64-json';
+    value?: JsonValue;
+  };
+  storage?: {
+    namespace: string;
+    key: string;
+    initialValue: JsonValue;
+    messageTypePath?: string[];
+    messageBindings: BridgeMessageBinding[];
+    bootstrapBindings: BridgeBootstrapBinding[];
+    vscodeStatePath?: string[];
+  };
+  session?: {
+    namespace: string;
+  };
+  webviewToHostMessages?: string[];
+  hostToWebviewMessages?: string[];
+  requiredHostOperations?: string[];
+}
+
 export interface OpenVsxPortConfig {
   schemaVersion: 1;
   converter?: ConverterPin;
@@ -57,10 +109,22 @@ export interface OpenVsxPortConfig {
         version: string;
         sha256: string;
       };
+      assets?: Array<{
+        url: string;
+        sha256: string;
+        path: string;
+      }>;
       root?: string;
       entry?: string;
       exclude?: string[];
+      rebaseRootPaths?: string[];
+      replacements?: Array<{
+        search: string;
+        replace: string;
+        files?: string[];
+      }>;
     };
+    bridge?: VsCodeCustomEditorBridgeConfig;
     [key: string]: unknown;
   };
   tap: Record<string, unknown>;

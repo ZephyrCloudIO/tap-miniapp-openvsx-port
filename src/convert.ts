@@ -3,6 +3,10 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { extractZip } from './archive.js';
+import {
+  buildBuiltinStaticWebviewMiniapp,
+  canUseBuiltinStaticWebviewAdapter,
+} from './builtin-adapter.js';
 import { loadPortConfig } from './config.js';
 import { sha256Bytes, sha256File } from './digest.js';
 import { inspectVsix } from './inspect.js';
@@ -71,6 +75,9 @@ export async function convertOpenVsxExtension(
       extensionDirectory,
     );
   }
+  const webviewAssetDigests = webviewRootDirectory
+    ? await materializePinnedWebviewAssets(config, webviewRootDirectory)
+    : {};
 
   const resolvedRecipePath = path.join(
     paths.workingDirectory,
@@ -96,23 +103,44 @@ export async function convertOpenVsxExtension(
     },
     source: config.source,
     inspection,
-    adapter: config.conversion.adapter ?? null,
+    adapter:
+      config.conversion.adapter ??
+      (canUseBuiltinStaticWebviewAdapter(config)
+        ? {
+            kind: 'builtin-static-webview',
+            package: CONVERTER_PACKAGE,
+            version: CONVERTER_VERSION,
+          }
+        : null),
     status: options.skipAdapter ? 'staged' : 'adapter-required',
   };
 
   if (!options.skipAdapter) {
-    const adapter = requireAdapter(config.conversion.adapter);
-    await runAdapter(adapter, {
-      configPath: loaded.path,
-      resolvedRecipePath,
-      workingDirectory: paths.workingDirectory,
-      extensionArchive,
-      extensionDirectory,
-      webviewArchive,
-      webviewDirectory,
-      webviewRootDirectory,
-      outputTarball: paths.npmTarball,
-    });
+    if (config.conversion.adapter) {
+      await runAdapter(config.conversion.adapter, {
+        configPath: loaded.path,
+        resolvedRecipePath,
+        workingDirectory: paths.workingDirectory,
+        extensionArchive,
+        extensionDirectory,
+        webviewArchive,
+        webviewDirectory,
+        webviewRootDirectory,
+        outputTarball: paths.npmTarball,
+      });
+    } else if (
+      webviewRootDirectory &&
+      canUseBuiltinStaticWebviewAdapter(config)
+    ) {
+      await buildBuiltinStaticWebviewMiniapp({
+        config,
+        workingDirectory: paths.workingDirectory,
+        webviewRootDirectory,
+        outputTarball: paths.npmTarball,
+      });
+    } else {
+      requireAdapter(config.conversion.adapter);
+    }
     await assertRegularFile(paths.npmTarball, 'adapter npm tarball');
     compatibilityReport.status = 'compatible';
   }
@@ -125,6 +153,7 @@ export async function convertOpenVsxExtension(
     extension: await sha256File(extensionArchive),
   };
   if (webviewArchive) inputDigests.webview = await sha256File(webviewArchive);
+  Object.assign(inputDigests, webviewAssetDigests);
   const outputDigests: Record<string, string> = {
     compatibilityReport: await sha256File(paths.compatibilityReport),
   };
@@ -154,6 +183,45 @@ export async function convertOpenVsxExtension(
     attestationPath: paths.attestation,
     inspection,
   };
+}
+
+export async function materializePinnedWebviewAssets(
+  config: OpenVsxPortConfig,
+  webviewRootDirectory: string,
+): Promise<Record<string, string>> {
+  const digests: Record<string, string> = {};
+  const root = path.resolve(webviewRootDirectory);
+  for (const [index, asset] of (
+    config.conversion.webview?.assets ?? []
+  ).entries()) {
+    const relativePath = normalizedAssetPath(asset.path);
+    const destination = path.resolve(root, ...relativePath.split('/'));
+    if (!destination.startsWith(`${root}${path.sep}`)) {
+      throw new Error(
+        `The pinned webview asset path escapes its root: ${asset.path}`,
+      );
+    }
+    try {
+      await access(destination);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        await acquireFile(asset.url, destination);
+        await assertDigest(
+          destination,
+          asset.sha256,
+          `webview asset '${relativePath}'`,
+        );
+        digests[`webviewAsset:${String(index)}:${relativePath}`] =
+          await sha256File(destination);
+        continue;
+      }
+      throw error;
+    }
+    throw new Error(
+      `The pinned webview asset collides with an existing file: ${relativePath}`,
+    );
+  }
+  return digests;
 }
 
 export async function verifyConversionOutputs(
@@ -374,6 +442,30 @@ async function assertRegularFile(
   const fileStats = await stat(filePath);
   if (!fileStats.isFile())
     throw new Error(`The ${label} is not a regular file.`);
+}
+
+function normalizedAssetPath(value: string): string {
+  const normalized = value.replaceAll('\\', '/');
+  if (
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:/u.test(normalized) ||
+    normalized
+      .split('/')
+      .some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error(
+      `Pinned webview assets require a relative file path without traversal: ${value}`,
+    );
+  }
+  return normalized;
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {

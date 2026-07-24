@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { OpenVsxPortConfig } from './types.js';
+import type { JsonValue, OpenVsxPortConfig } from './types.js';
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 const boundedText = (maximum: number) => z.string().trim().min(1).max(maximum);
@@ -23,6 +23,89 @@ const adapterSchema = z
     ),
     binary: boundedText(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u),
     args: z.array(z.string().max(4096)).max(64).default([]),
+  })
+  .strict();
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number(),
+    z.string(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+const jsonPathSchema = z
+  .array(
+    boundedText(128).refine(
+      (segment) =>
+        segment !== '__proto__' &&
+        segment !== 'constructor' &&
+        segment !== 'prototype',
+      { message: 'JSON paths cannot contain prototype mutation segments' },
+    ),
+  )
+  .min(1)
+  .max(32);
+const bridgeSchema = z
+  .object({
+    kind: z.literal('vscode-custom-editor'),
+    viewType: boundedText(256),
+    bootstrap: z
+      .object({
+        selector: boundedText(1024),
+        attribute: boundedText(256),
+        encoding: z.literal('base64-json'),
+        value: jsonValueSchema.optional(),
+      })
+      .strict(),
+    storage: z
+      .object({
+        namespace: boundedText(128),
+        key: boundedText(512),
+        initialValue: jsonValueSchema,
+        messageTypePath: jsonPathSchema.optional(),
+        messageBindings: z
+          .array(
+            z
+              .object({
+                messageType: boundedText(256),
+                messageValuePath: jsonPathSchema,
+                statePath: jsonPathSchema,
+                transform: z
+                  .enum(['identity', 'byte-array-to-base64'])
+                  .optional(),
+              })
+              .strict(),
+          )
+          .max(128),
+        bootstrapBindings: z
+          .array(
+            z
+              .object({
+                statePath: jsonPathSchema,
+                bootstrapPath: jsonPathSchema,
+                transform: z
+                  .enum(['identity', 'base64-to-byte-array'])
+                  .optional(),
+              })
+              .strict(),
+          )
+          .max(128),
+        vscodeStatePath: jsonPathSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    session: z
+      .object({
+        namespace: boundedText(128),
+      })
+      .strict()
+      .optional(),
+    webviewToHostMessages: z.array(boundedText(256)).max(256).optional(),
+    hostToWebviewMessages: z.array(boundedText(256)).max(256).optional(),
+    requiredHostOperations: z.array(boundedText(256)).max(256).optional(),
   })
   .strict();
 
@@ -78,9 +161,37 @@ const configSchema = z
               })
               .strict()
               .optional(),
+            assets: z
+              .array(
+                z
+                  .object({
+                    url: z.url(),
+                    sha256: sha256Schema,
+                    path: boundedText(1024),
+                  })
+                  .strict(),
+              )
+              .max(256)
+              .optional(),
             root: boundedText(1024).optional(),
             entry: boundedText(1024).optional(),
             exclude: z.array(z.string().max(1024)).max(256).optional(),
+            rebaseRootPaths: z
+              .array(boundedText(256).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u))
+              .max(64)
+              .optional(),
+            replacements: z
+              .array(
+                z
+                  .object({
+                    search: boundedText(4096),
+                    replace: z.string().max(4096),
+                    files: z.array(boundedText(1024)).max(256).optional(),
+                  })
+                  .strict(),
+              )
+              .max(256)
+              .optional(),
           })
           .strict()
           .superRefine((webview, context) => {
@@ -100,6 +211,7 @@ const configSchema = z
             }
           })
           .optional(),
+        bridge: bridgeSchema.optional(),
       })
       .catchall(z.unknown()),
     tap: z.record(z.string(), z.unknown()),
