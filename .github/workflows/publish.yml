@@ -97,15 +97,21 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      # `prepack` builds; pack produces the exact tarball that will be published.
+      # Build explicitly, then pack with --ignore-scripts so no lifecycle
+      # (prepack) output pollutes the packed filename. pack produces the exact
+      # tarball that will be published.
+      - name: Build the package
+        run: pnpm build
+
       - name: Pack the publication tarball
         id: tarball
         run: |
-          TARBALL="$(npm pack --silent)"
+          npm pack --ignore-scripts --pack-destination "${RUNNER_TEMP}"
+          TARBALL="$(ls "${RUNNER_TEMP}"/*.tgz)"
           mv "$TARBALL" "${RUNNER_TEMP}/package.tgz"
           SHA256="$(shasum -a 256 "${RUNNER_TEMP}/package.tgz" | awk '{print $1}')"
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
-          echo "Packed ${TARBALL} (sha256=${SHA256})"
+          echo "Packed $(basename "$TARBALL") (sha256=${SHA256})"
 
       - name: Store the exact verified tarball
         uses: actions/upload-artifact@v4
