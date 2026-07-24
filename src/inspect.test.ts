@@ -18,6 +18,24 @@ it('inspects a browser extension without executing it', async () => {
       displayName: 'Visual Editor',
       browser: './dist/browser.js',
       activationEvents: ['onStartupFinished'],
+      contributes: {
+        customEditors: [
+          {
+            viewType: 'editor.visual',
+            displayName: 'Visual Editor',
+            priority: 'default',
+            selector: [{ filenamePattern: '*.visual' }],
+          },
+        ],
+        commands: [{ command: 'visual.newFile' }],
+        configuration: [
+          {
+            properties: {
+              'visual.theme': { type: 'string' },
+            },
+          },
+        ],
+      },
     }),
     'extension/dist/browser.js': 'throw new Error("must never execute");',
   });
@@ -25,6 +43,17 @@ it('inspects a browser extension without executing it', async () => {
   expect(result.extension.id).toBe('example.visual-editor');
   expect(result.classification).toBe('browser-extension-host');
   expect(result.findings.join(' ')).toMatch(/explicit adapter/u);
+  expect(result.extension.customEditors).toEqual([
+    {
+      viewType: 'editor.visual',
+      displayName: 'Visual Editor',
+      priority: 'default',
+      filenamePatterns: ['*.visual'],
+    },
+  ]);
+  expect(result.extension.commands).toEqual(['visual.newFile']);
+  expect(result.extension.configurationKeys).toEqual(['visual.theme']);
+  expect(result.findings.join(' ')).toMatch(/document and webview bridge/u);
 });
 
 it('rejects archive traversal', async () => {

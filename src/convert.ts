@@ -6,7 +6,7 @@ import { extractZip } from './archive.js';
 import { loadPortConfig } from './config.js';
 import { sha256Bytes, sha256File } from './digest.js';
 import { inspectVsix } from './inspect.js';
-import { acquireFile, openVsxDownloadUrl } from './source.js';
+import { acquireFile, extensionDownloadUrl } from './source.js';
 import { CONVERTER_PACKAGE, CONVERTER_VERSION } from './version.js';
 import type {
   ConversionResult,
@@ -33,7 +33,7 @@ export async function convertOpenVsxExtension(
   await mkdir(paths.workingDirectory, { recursive: true });
 
   const extensionArchive = path.join(paths.workingDirectory, 'source.vsix');
-  const sourceInput = options.source ?? openVsxDownloadUrl(config.source);
+  const sourceInput = options.source ?? extensionDownloadUrl(config.source);
   await acquireFile(sourceInput, extensionArchive);
   await assertDigest(extensionArchive, config.source.sha256, 'extension');
   const inspection = await inspectVsix(extensionArchive);
@@ -48,6 +48,7 @@ export async function convertOpenVsxExtension(
 
   let webviewArchive: string | null = null;
   let webviewDirectory: string | null = null;
+  let webviewRootDirectory: string | null = null;
   const declaredWebviewArchive = config.conversion.webview?.archive;
   if (declaredWebviewArchive) {
     webviewArchive = path.join(paths.workingDirectory, 'webview.zip');
@@ -59,7 +60,16 @@ export async function convertOpenVsxExtension(
     );
     webviewDirectory = path.join(paths.workingDirectory, 'webview');
     await extractZip(webviewArchive, webviewDirectory);
-    await assertWebviewEntry(config, webviewDirectory);
+    webviewRootDirectory = await resolveWebviewRootDirectory(
+      config,
+      webviewDirectory,
+    );
+  } else if (config.conversion.webview?.source === 'extension') {
+    webviewDirectory = extensionDirectory;
+    webviewRootDirectory = await resolveWebviewRootDirectory(
+      config,
+      extensionDirectory,
+    );
   }
 
   const resolvedRecipePath = path.join(
@@ -74,6 +84,7 @@ export async function convertOpenVsxExtension(
       extensionDirectory,
       webviewArchive,
       webviewDirectory,
+      webviewRootDirectory,
     },
   });
 
@@ -99,6 +110,7 @@ export async function convertOpenVsxExtension(
       extensionDirectory,
       webviewArchive,
       webviewDirectory,
+      webviewRootDirectory,
       outputTarball: paths.npmTarball,
     });
     await assertRegularFile(paths.npmTarball, 'adapter npm tarball');
@@ -252,21 +264,30 @@ function assertExtensionIdentity(
   }
 }
 
-async function assertWebviewEntry(
+async function resolveWebviewRootDirectory(
   config: OpenVsxPortConfig,
-  webviewDirectory: string,
-): Promise<void> {
+  sourceDirectory: string,
+): Promise<string> {
   const root = config.conversion.webview?.root ?? '.';
   const entry = config.conversion.webview?.entry;
-  if (!entry) return;
-  const expected = path.resolve(webviewDirectory, root, entry);
+  const webviewDirectory = path.resolve(sourceDirectory, root);
   if (
-    expected !== webviewDirectory &&
-    !expected.startsWith(`${webviewDirectory}${path.sep}`)
+    webviewDirectory !== sourceDirectory &&
+    !webviewDirectory.startsWith(`${sourceDirectory}${path.sep}`)
   ) {
-    throw new Error('The configured webview entry escapes the archive root.');
+    throw new Error('The configured webview root escapes its source.');
   }
-  await assertRegularFile(expected, 'webview entry');
+  if (entry) {
+    const expected = path.resolve(webviewDirectory, entry);
+    if (
+      expected !== webviewDirectory &&
+      !expected.startsWith(`${webviewDirectory}${path.sep}`)
+    ) {
+      throw new Error('The configured webview entry escapes its root.');
+    }
+    await assertRegularFile(expected, 'webview entry');
+  }
+  return webviewDirectory;
 }
 
 function requireAdapter(
@@ -290,6 +311,7 @@ async function runAdapter(
     extensionDirectory: string;
     webviewArchive: string | null;
     webviewDirectory: string | null;
+    webviewRootDirectory: string | null;
     outputTarball: string;
   },
 ): Promise<void> {
@@ -316,6 +338,11 @@ async function runAdapter(
       : {}),
     ...(context.webviewDirectory
       ? { TAP_OPENVSX_WEBVIEW_DIRECTORY: context.webviewDirectory }
+      : {}),
+    ...(context.webviewRootDirectory
+      ? {
+          TAP_OPENVSX_WEBVIEW_ROOT_DIRECTORY: context.webviewRootDirectory,
+        }
       : {}),
   };
   await new Promise<void>((resolve, reject) => {

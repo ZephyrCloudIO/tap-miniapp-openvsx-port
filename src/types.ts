@@ -6,6 +6,18 @@ export interface OpenVsxSourceConfig {
   sha256: string;
 }
 
+export interface VisualStudioMarketplaceSourceConfig {
+  provider: 'visualstudio-marketplace';
+  registryUrl: 'https://marketplace.visualstudio.com';
+  extensionId: string;
+  version: string;
+  sha256: string;
+}
+
+export type ExtensionSourceConfig =
+  | OpenVsxSourceConfig
+  | VisualStudioMarketplaceSourceConfig;
+
 export interface ConverterPin {
   repository: string;
   package: '@theaiplatform/openvsx-port';
@@ -33,12 +45,13 @@ export interface PortOutputConfig {
 export interface OpenVsxPortConfig {
   schemaVersion: 1;
   converter?: ConverterPin;
-  source: OpenVsxSourceConfig;
+  source: ExtensionSourceConfig;
   conversion: {
     profile: 'static-webview';
     targets: Array<'desktop' | 'mobile'>;
     adapter?: TrustedAdapterConfig;
     webview?: {
+      source?: 'extension';
       archive?: {
         url: string;
         version: string;
@@ -83,6 +96,14 @@ export interface VsixInspection {
     activationEvents: string[];
     extensionDependencies: string[];
     extensionPack: string[];
+    customEditors: Array<{
+      viewType: string;
+      displayName: string;
+      priority: string | null;
+      filenamePatterns: string[];
+    }>;
+    commands: string[];
+    configurationKeys: string[];
   };
   classification: ExtensionClassification;
   findings: string[];
