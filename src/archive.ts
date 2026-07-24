@@ -1,7 +1,12 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, open } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import yauzl, { type Entry, type ZipFile } from 'yauzl';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import unzipper, {
+  type CentralDirectory,
+  type File as ZipEntry,
+} from 'unzipper';
 
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
@@ -14,35 +19,8 @@ export interface ArchiveSummary {
 }
 
 export async function inspectZip(filePath: string): Promise<ArchiveSummary> {
-  const archive = await open(filePath, 'r');
-  try {
-    const stats = await archive.stat();
-    if (stats.size > MAX_ARCHIVE_BYTES) {
-      throw new Error('The archive exceeds the 512 MiB compressed-size limit.');
-    }
-  } finally {
-    await archive.close();
-  }
-
-  const zip = await openZip(filePath);
-  try {
-    let entryCount = 0;
-    let totalUncompressedBytes = 0;
-    for await (const entry of entries(zip)) {
-      validateEntry(entry);
-      entryCount += 1;
-      totalUncompressedBytes += entry.uncompressedSize;
-      if (entryCount > MAX_ENTRIES) {
-        throw new Error(`The archive exceeds ${String(MAX_ENTRIES)} entries.`);
-      }
-      if (totalUncompressedBytes > MAX_EXPANDED_BYTES) {
-        throw new Error('The archive exceeds the 1 GiB expanded-size limit.');
-      }
-    }
-    return { entryCount, totalUncompressedBytes };
-  } finally {
-    zip.close();
-  }
+  const directory = await openArchive(filePath);
+  return summarizeEntries(directory.files);
 }
 
 export async function readZipEntry(
@@ -50,46 +28,39 @@ export async function readZipEntry(
   entryName: string,
   maximumBytes = 5 * 1024 * 1024,
 ): Promise<Buffer> {
-  const zip = await openZip(filePath);
-  try {
-    for await (const entry of entries(zip)) {
-      validateEntry(entry);
-      if (entry.fileName !== entryName) continue;
-      if (isDirectory(entry)) {
-        throw new Error(`Archive entry ${entryName} is a directory.`);
-      }
-      if (entry.uncompressedSize > maximumBytes) {
-        throw new Error(`Archive entry ${entryName} exceeds its size limit.`);
-      }
-      return await readEntry(zip, entry, maximumBytes);
-    }
-  } finally {
-    zip.close();
+  const directory = await openArchive(filePath);
+  summarizeEntries(directory.files);
+  const entry = directory.files.find(
+    (candidate) => candidate.path === entryName,
+  );
+  if (!entry) {
+    throw new Error(`Archive entry ${entryName} is missing.`);
   }
-  throw new Error(`Archive entry ${entryName} is missing.`);
+  if (isDirectory(entry)) {
+    throw new Error(`Archive entry ${entryName} is a directory.`);
+  }
+  if (entry.uncompressedSize > maximumBytes) {
+    throw new Error(`Archive entry ${entryName} exceeds its size limit.`);
+  }
+  return await readEntry(entry, maximumBytes);
 }
 
 export async function extractZip(
   filePath: string,
   destination: string,
 ): Promise<ArchiveSummary> {
-  const summary = await inspectZip(filePath);
+  const directory = await openArchive(filePath);
+  const summary = summarizeEntries(directory.files);
   await mkdir(destination, { recursive: true });
   const canonicalDestination = path.resolve(destination);
-  const zip = await openZip(filePath);
-  try {
-    for await (const entry of entries(zip)) {
-      validateEntry(entry);
-      const target = safeArchiveTarget(canonicalDestination, entry.fileName);
-      if (isDirectory(entry)) {
-        await mkdir(target, { recursive: true });
-        continue;
-      }
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeEntry(zip, entry, target);
+  for (const entry of directory.files) {
+    const target = safeArchiveTarget(canonicalDestination, entry.path);
+    if (isDirectory(entry)) {
+      await mkdir(target, { recursive: true });
+      continue;
     }
-  } finally {
-    zip.close();
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeEntry(entry, target);
   }
   return summary;
 }
@@ -106,69 +77,57 @@ export async function readJsonZipEntry(
   }
 }
 
-function openZip(filePath: string): Promise<ZipFile> {
-  return new Promise((resolve, reject) => {
-    yauzl.open(
-      filePath,
-      { lazyEntries: true, autoClose: false },
-      (error, zip) => {
-        if (error) reject(error);
-        else resolve(zip);
-      },
-    );
-  });
-}
-
-async function* entries(zip: ZipFile): AsyncGenerator<Entry> {
-  const queue: Entry[] = [];
-  let done = false;
-  const state: { failure: Error | null } = { failure: null };
-  let wake: (() => void) | null = null;
-  const notify = () => {
-    wake?.();
-    wake = null;
-  };
-  zip.on('entry', (entry: Entry) => {
-    queue.push(entry);
-    notify();
-  });
-  zip.once('end', () => {
-    done = true;
-    notify();
-  });
-  zip.once('error', (error: Error) => {
-    state.failure = error;
-    done = true;
-    notify();
-  });
-  zip.readEntry();
-  while (!done || queue.length > 0) {
-    if (queue.length === 0) {
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-      continue;
-    }
-    const entry = queue.shift();
-    if (!entry) continue;
-    yield entry;
-    zip.readEntry();
+async function openArchive(filePath: string): Promise<CentralDirectory> {
+  const stats = await stat(filePath);
+  if (!stats.isFile()) {
+    throw new Error('The archive input is not a regular file.');
   }
-  if (state.failure !== null) throw state.failure;
+  if (stats.size > MAX_ARCHIVE_BYTES) {
+    throw new Error('The archive exceeds the 512 MiB compressed-size limit.');
+  }
+  return await unzipper.Open.file(filePath);
 }
 
-function validateEntry(entry: Entry): void {
-  if ((entry.generalPurposeBitFlag & 0x1) !== 0) {
-    throw new Error(`Encrypted ZIP entry is not allowed: ${entry.fileName}`);
+function summarizeEntries(entries: ZipEntry[]): ArchiveSummary {
+  if (entries.length > MAX_ENTRIES) {
+    throw new Error(`The archive exceeds ${String(MAX_ENTRIES)} entries.`);
+  }
+  const paths = new Set<string>();
+  let totalUncompressedBytes = 0;
+  for (const entry of entries) {
+    validateEntry(entry);
+    if (paths.has(entry.path)) {
+      throw new Error(`Duplicate ZIP entry path is not allowed: ${entry.path}`);
+    }
+    paths.add(entry.path);
+    totalUncompressedBytes += entry.uncompressedSize;
+    if (totalUncompressedBytes > MAX_EXPANDED_BYTES) {
+      throw new Error('The archive exceeds the 1 GiB expanded-size limit.');
+    }
+  }
+  return {
+    entryCount: entries.length,
+    totalUncompressedBytes,
+  };
+}
+
+function validateEntry(entry: ZipEntry): void {
+  if ((entry.flags & 0x1) !== 0) {
+    throw new Error(`Encrypted ZIP entry is not allowed: ${entry.path}`);
+  }
+  if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
+    throw new Error(
+      `Unsupported ZIP compression method ${String(entry.compressionMethod)}: ${entry.path}`,
+    );
   }
   if (entry.uncompressedSize > MAX_ENTRY_BYTES) {
-    throw new Error(`ZIP entry exceeds 256 MiB: ${entry.fileName}`);
+    throw new Error(`ZIP entry exceeds 256 MiB: ${entry.path}`);
   }
-  safeArchiveTarget('/archive-root', entry.fileName);
+  safeArchiveTarget('/archive-root', entry.path);
   const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
   const fileType = unixMode & 0o170000;
   if (fileType === 0o120000) {
-    throw new Error(`Symbolic links are not allowed: ${entry.fileName}`);
+    throw new Error(`Symbolic links are not allowed: ${entry.path}`);
   }
 }
 
@@ -183,10 +142,14 @@ function safeArchiveTarget(destination: string, entryName: string): string {
     throw new Error(`Unsafe ZIP entry path: ${entryName}`);
   }
   const segments = entryName.split('/');
-  if (segments.some((segment) => segment === '..' || segment === '.')) {
+  const normalizedSegments = segments.filter((segment) => segment.length > 0);
+  if (
+    normalizedSegments.length === 0 ||
+    normalizedSegments.some((segment) => segment === '..' || segment === '.')
+  ) {
     throw new Error(`Unsafe ZIP entry path: ${entryName}`);
   }
-  const target = path.resolve(destination, ...segments);
+  const target = path.resolve(destination, ...normalizedSegments);
   if (
     target !== destination &&
     !target.startsWith(`${destination}${path.sep}`)
@@ -196,54 +159,68 @@ function safeArchiveTarget(destination: string, entryName: string): string {
   return target;
 }
 
-function isDirectory(entry: Entry): boolean {
-  return entry.fileName.endsWith('/');
-}
-
-function openReadStream(
-  zip: ZipFile,
-  entry: Entry,
-): Promise<NodeJS.ReadableStream> {
-  return new Promise((resolve, reject) => {
-    zip.openReadStream(entry, (error, stream) => {
-      if (error) reject(error);
-      else resolve(stream);
-    });
-  });
+function isDirectory(entry: ZipEntry): boolean {
+  return entry.type === 'Directory' || entry.path.endsWith('/');
 }
 
 async function readEntry(
-  zip: ZipFile,
-  entry: Entry,
+  entry: ZipEntry,
   maximumBytes: number,
 ): Promise<Buffer> {
-  const stream = await openReadStream(zip, entry);
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of stream) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  for await (const chunk of entry.stream()) {
+    const bytes = archiveChunk(chunk);
     total += bytes.byteLength;
     if (total > maximumBytes) {
-      throw new Error(
-        `Archive entry ${entry.fileName} exceeds its size limit.`,
-      );
+      throw new Error(`Archive entry ${entry.path} exceeds its size limit.`);
     }
     chunks.push(bytes);
   }
+  assertExpandedSize(entry, total);
   return Buffer.concat(chunks, total);
 }
 
-async function writeEntry(
-  zip: ZipFile,
-  entry: Entry,
-  target: string,
-): Promise<void> {
-  const input = await openReadStream(zip, entry);
+function archiveChunk(chunk: unknown): Buffer {
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (chunk instanceof Uint8Array || typeof chunk === 'string') {
+    return Buffer.from(chunk);
+  }
+  throw new Error('The archive stream emitted an unsupported chunk type.');
+}
+
+async function writeEntry(entry: ZipEntry, target: string): Promise<void> {
+  const limiter = byteLimit(entry);
   const output = createWriteStream(target, { flags: 'wx', mode: 0o600 });
-  await new Promise<void>((resolve, reject) => {
-    input.once('error', reject);
-    output.once('error', reject);
-    output.once('finish', resolve);
-    input.pipe(output);
+  await pipeline(entry.stream(), limiter, output);
+}
+
+function byteLimit(entry: ZipEntry): Transform {
+  let total = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      total += chunk.byteLength;
+      if (total > MAX_ENTRY_BYTES) {
+        callback(new Error(`ZIP entry exceeds 256 MiB: ${entry.path}`));
+        return;
+      }
+      callback(null, chunk);
+    },
+    flush(callback) {
+      try {
+        assertExpandedSize(entry, total);
+        callback();
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error(String(error)));
+      }
+    },
   });
+}
+
+function assertExpandedSize(entry: ZipEntry, actualBytes: number): void {
+  if (actualBytes !== entry.uncompressedSize) {
+    throw new Error(
+      `ZIP entry size does not match its central directory metadata: ${entry.path}`,
+    );
+  }
 }

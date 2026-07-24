@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, it } from '@rstest/core';
 import yazl from 'yazl';
 import { inspectVsix } from './inspect.js';
-import { inspectZip } from './archive.js';
+import { extractZip, inspectZip } from './archive.js';
 
 it('inspects a browser extension without executing it', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'tap-openvsx-vsix-'));
@@ -48,6 +48,29 @@ it('rejects archive traversal', async () => {
   await expect(inspectZip(archive)).rejects.toThrow(
     /(Unsafe ZIP entry path|invalid relative path)/u,
   );
+});
+
+it('extracts every entry from a large lazy archive', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'tap-openvsx-vsix-'));
+  const archive = path.join(directory, 'many-entries.vsix');
+  const destination = path.join(directory, 'extracted');
+  const entryCount = 2_048;
+  await createZip(
+    archive,
+    Object.fromEntries(
+      Array.from({ length: entryCount }, (_, index) => [
+        `files/entry-${String(index).padStart(4, '0')}.txt`,
+        `value-${String(index)}`,
+      ]),
+    ),
+  );
+
+  const summary = await extractZip(archive, destination);
+
+  expect(summary.entryCount).toBe(entryCount);
+  expect(
+    await readFile(path.join(destination, 'files/entry-2047.txt'), 'utf8'),
+  ).toBe('value-2047');
 });
 
 function createZip(

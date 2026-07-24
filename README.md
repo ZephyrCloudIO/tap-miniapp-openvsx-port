@@ -31,12 +31,12 @@ unreviewed extension upload.
 ## Install and run
 
 ```sh
-npx --yes @theaiplatform/openvsx-port@0.1.8 inspect ./extension.vsix
+npx --yes @theaiplatform/openvsx-port@0.1.9 inspect ./extension.vsix
 
-npx --yes @theaiplatform/openvsx-port@0.1.8 convert \
+npx --yes @theaiplatform/openvsx-port@0.1.9 convert \
   --config openvsx/example/visual-editor/tap.openvsx.json
 
-npx --yes @theaiplatform/openvsx-port@0.1.8 verify \
+npx --yes @theaiplatform/openvsx-port@0.1.9 verify \
   --config openvsx/example/visual-editor/tap.openvsx.json
 ```
 

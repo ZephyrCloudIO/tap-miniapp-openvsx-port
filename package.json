@@ -58,7 +58,7 @@
     "provenance": true
   },
   "dependencies": {
-    "yauzl": "3.2.0",
+    "unzipper": "0.12.5",
     "zod": "4.1.12"
   },
   "devDependencies": {
@@ -67,7 +67,7 @@
     "@rslib/core": "0.23.2",
     "@rstest/core": "0.11.3",
     "@types/node": "24.10.1",
-    "@types/yauzl": "2.10.3",
+    "@types/unzipper": "0.10.11",
     "@types/yazl": "3.3.1",
     "eslint": "9.39.1",
     "prettier": "3.6.2",

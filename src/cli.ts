@@ -3,6 +3,7 @@
 import { resolve } from 'node:path';
 import { convertOpenVsxExtension, verifyConversionOutputs } from './convert.js';
 import { inspectVsix } from './inspect.js';
+import { CONVERTER_VERSION } from './version.js';
 
 interface ParsedArgs {
   command: string;
@@ -47,7 +48,7 @@ async function main(): Promise<void> {
     case 'version':
     case '--version':
     case '-v':
-      process.stdout.write('0.1.8\n');
+      process.stdout.write(`${CONVERTER_VERSION}\n`);
       return;
     default:
       throw new Error(`Unknown command: ${parsed.command}`);
@@ -88,7 +89,7 @@ function requiredValue(parsed: ParsedArgs, name: string): string {
 }
 
 function printHelp(): void {
-  process.stdout.write(`tap-openvsx 0.1.8
+  process.stdout.write(`tap-openvsx ${CONVERTER_VERSION}
 
 Usage:
   tap-openvsx inspect <extension.vsix>
