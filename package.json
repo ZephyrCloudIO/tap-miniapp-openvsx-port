@@ -1,6 +1,6 @@
 {
   "name": "@theaiplatform/openvsx-port",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Safe, reproducible intake and conversion orchestration for porting VS Code extensions into The AI Platform miniapps.",
   "type": "module",
   "license": "Apache-2.0",

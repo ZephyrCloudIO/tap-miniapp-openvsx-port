@@ -12,6 +12,7 @@ import { afterEach, expect, it } from '@rstest/core';
 import {
   buildBuiltinStaticWebviewMiniapp,
   canUseBuiltinStaticWebviewAdapter,
+  resolveSdkDistModuleFrom,
 } from './builtin-adapter.js';
 import type { OpenVsxPortConfig } from './types.js';
 
@@ -23,6 +24,32 @@ afterEach(async () => {
       .splice(0)
       .map((directory) => rm(directory, { recursive: true, force: true })),
   );
+});
+
+it('resolves the SDK beside an npm-installed scoped converter package', async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), 'tap-openvsx-sdk-resolution-'),
+  );
+  temporaryDirectories.push(directory);
+  const scope = path.join(directory, 'node_modules', '@theaiplatform');
+  const converterDist = path.join(scope, 'openvsx-port', 'dist');
+  const sdkModule = path.join(
+    scope,
+    'miniapp-sdk',
+    'dist',
+    'vscode-webview.js',
+  );
+  await mkdir(converterDist, { recursive: true });
+  await mkdir(path.dirname(sdkModule), { recursive: true });
+  await writeFile(sdkModule, 'export {};');
+
+  expect(
+    resolveSdkDistModuleFrom(
+      converterDist,
+      path.join(directory, 'consumer'),
+      'vscode-webview.js',
+    ),
+  ).toBe(sdkModule);
 });
 
 it('builds an installable package without executing the extension host', async () => {
@@ -160,7 +187,7 @@ function fixtureConfig(): OpenVsxPortConfig {
     converter: {
       repository: 'https://github.com/ZephyrCloudIO/tap-miniapp-openvsx-port',
       package: '@theaiplatform/openvsx-port',
-      version: '0.1.12',
+      version: '0.1.13',
       binary: 'tap-openvsx',
     },
     source: {
