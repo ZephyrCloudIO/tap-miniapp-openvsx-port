@@ -3,7 +3,13 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['.rslib/**', 'dist/**', 'node_modules/**', 'eslint.config.js'],
+    ignores: [
+      '.rslib/**',
+      'dist/**',
+      'node_modules/**',
+      'eslint.config.js',
+      'scripts/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
