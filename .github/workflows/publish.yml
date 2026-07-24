@@ -1,21 +1,64 @@
 name: Publish npm package
+# The run name surfaces the exact channel and branch a reviewer approves at the
+# protection-only `npmjs-approval` gate on the first job.
+run-name: Publish ${{ inputs.release_channel }} from ${{ inputs.branch }}
+
+# Public-registry lane for @theaiplatform/openvsx-port, published only by manual
+# dispatch. Two channels:
+#   canary (default) -> 0.0.0-<sanitized-branch>.<N> on the `canary` dist-tag;
+#                        <N> accumulates per branch off already-published canaries.
+#   latest           -> the clean stable package.json version on the `latest`
+#                        dist-tag.
+# The protection-only `npmjs-approval` environment on the first job holds the
+# required reviewer, so a dispatch is approved before any build runs. Publication
+# authenticates via npm Trusted Publishing (OIDC): the single publish step runs
+# in the OIDC-bound `npmjs` environment with `id-token: write`. No static npm
+# token secret is used or stored.
 
 on:
   workflow_dispatch:
+    inputs:
+      release_channel:
+        description: 'Release channel'
+        required: true
+        default: canary
+        type: choice
+        options:
+          - canary
+          - latest
+      branch:
+        description: 'Release branch (confirm the branch you are publishing)'
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
 
+# Publishing is not transactional and the canary counter is read-modify-write.
+# Serialize per channel so concurrent runs cannot compute or publish the same
+# version.
+concurrency:
+  group: npmjs-openvsx-port-${{ inputs.release_channel }}
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  prepare:
+    name: Build and verify ${{ inputs.release_channel }} from ${{ inputs.branch }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: npmjs
-    permissions:
-      contents: read
-      id-token: write
+    # The reviewer approval gate lives here, not on publish, so a dispatch is
+    # approved (against the run name's channel and branch) before any build
+    # runs. This environment is protection-only: reviewer, no secrets.
+    environment: npmjs-approval
+    outputs:
+      sha256: ${{ steps.tarball.outputs.sha256 }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch }}
       - uses: pnpm/action-setup@v5
         with:
           version: 10.33.1
@@ -24,6 +67,110 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      # Resolve version/dist-tag before install and build so a stale latest is
+      # rejected as early as possible.
+      - name: Compute npm version and dist-tag
+        id: version
+        env:
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          BRANCH_NAME: ${{ inputs.branch }}
+        run: node scripts/compute-npmjs-version.mjs
+
+      - name: Fail fast when the latest version is already published
+        if: inputs.release_channel == 'latest'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if npm view "@theaiplatform/openvsx-port@${VERSION}" version \
+            --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "::error::@theaiplatform/openvsx-port@${VERSION} is already published. Bump package.json before dispatching a latest release."
+            exit 1
+          fi
+          echo "@theaiplatform/openvsx-port@${VERSION} is not yet published; continuing."
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: npm publish --access public --provenance
+
+      - name: Set the publication version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      # `prepack` builds; pack produces the exact tarball that will be published.
+      - name: Pack the publication tarball
+        id: tarball
+        run: |
+          TARBALL="$(npm pack --silent)"
+          mv "$TARBALL" "${RUNNER_TEMP}/package.tgz"
+          SHA256="$(shasum -a 256 "${RUNNER_TEMP}/package.tgz" | awk '{print $1}')"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "Packed ${TARBALL} (sha256=${SHA256})"
+
+      - name: Store the exact verified tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: openvsx-port-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish ${{ inputs.release_channel }} from ${{ inputs.branch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # OIDC-bound environment npm's trusted publisher expects. Its reviewer is
+    # removed so this job does not re-prompt — approval happened on `prepare`.
+    environment: npmjs
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Restore the exact verified tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: openvsx-port-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact
+
+      - name: Verify the tarball matches the verified artifact
+        env:
+          EXPECTED_SHA256: ${{ needs.prepare.outputs.sha256 }}
+        run: |
+          ACTUAL="$(shasum -a 256 "${RUNNER_TEMP}/artifact/package.tgz" | awk '{print $1}')"
+          if [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Restored tarball ${ACTUAL} does not match verified ${EXPECTED_SHA256}."
+            exit 1
+          fi
+          echo "Tarball integrity verified (${ACTUAL})."
+
+      - name: Publish exact tarball (only credential-bearing step)
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          npm publish "${RUNNER_TEMP}/artifact/package.tgz" \
+            --ignore-scripts \
+            --access public \
+            --provenance \
+            --tag "$TAG"
+
+      - name: Summarize the published version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          {
+            echo "## Published @theaiplatform/openvsx-port"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| dist-tag | \`${TAG}\` |"
+            echo "| Install | \`npm install @theaiplatform/openvsx-port@${VERSION}\` |"
+            echo "| npm | https://www.npmjs.com/package/@theaiplatform/openvsx-port/v/${VERSION} |"
+          } >> "$GITHUB_STEP_SUMMARY"
