@@ -7,14 +7,12 @@ import { loadPortConfig } from './config.js';
 import { sha256Bytes, sha256File } from './digest.js';
 import { inspectVsix } from './inspect.js';
 import { acquireFile, openVsxDownloadUrl } from './source.js';
+import { CONVERTER_PACKAGE, CONVERTER_VERSION } from './version.js';
 import type {
   ConversionResult,
   OpenVsxPortConfig,
   TrustedAdapterConfig,
 } from './types.js';
-
-const CONVERTER_PACKAGE = '@theaiplatform/openvsx-port';
-const CONVERTER_VERSION = '0.1.8';
 
 export interface ConvertOptions {
   config: string;
@@ -27,6 +25,7 @@ export async function convertOpenVsxExtension(
 ): Promise<ConversionResult> {
   const loaded = await loadPortConfig(options.config);
   const config = loaded.value;
+  assertConverterPin(config);
   const projectRoot = process.cwd();
   const paths = resolveOutputPaths(projectRoot, config);
   assertSafeWorkingDirectory(projectRoot, paths.workingDirectory);
@@ -149,6 +148,7 @@ export async function verifyConversionOutputs(
   configPath: string,
 ): Promise<void> {
   const loaded = await loadPortConfig(configPath);
+  assertConverterPin(loaded.value);
   const paths = resolveOutputPaths(process.cwd(), loaded.value);
   await Promise.all([
     assertRegularFile(paths.npmTarball, 'npm tarball'),
@@ -187,6 +187,22 @@ function resolveOutputPaths(
     ),
     attestation: path.resolve(directory, config.output.attestation),
   };
+}
+
+function assertConverterPin(config: OpenVsxPortConfig): void {
+  const pin = config.converter;
+  if (!pin) {
+    throw new Error('The conversion recipe must pin its converter.');
+  }
+  if (
+    pin.package !== CONVERTER_PACKAGE ||
+    pin.binary !== 'tap-openvsx' ||
+    pin.version !== CONVERTER_VERSION
+  ) {
+    throw new Error(
+      `The recipe pins ${pin.package}@${pin.version} (${pin.binary}), but this converter is ${CONVERTER_PACKAGE}@${CONVERTER_VERSION} (tap-openvsx).`,
+    );
+  }
 }
 
 function assertSafeWorkingDirectory(projectRoot: string, target: string): void {
