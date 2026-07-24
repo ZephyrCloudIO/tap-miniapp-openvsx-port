@@ -503,7 +503,16 @@ async function buildTarget(options: {
 
 function resolveSdkDistModule(fileName: string): string {
   const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+  return resolveSdkDistModuleFrom(moduleDirectory, process.cwd(), fileName);
+}
+
+export function resolveSdkDistModuleFrom(
+  moduleDirectory: string,
+  workingDirectory: string,
+  fileName: string,
+): string {
   const candidates = [
+    path.resolve(moduleDirectory, '..', '..', 'miniapp-sdk', 'dist', fileName),
     path.resolve(
       moduleDirectory,
       '..',
@@ -514,7 +523,7 @@ function resolveSdkDistModule(fileName: string): string {
       fileName,
     ),
     path.resolve(
-      process.cwd(),
+      workingDirectory,
       'node_modules',
       '@theaiplatform',
       'miniapp-sdk',
