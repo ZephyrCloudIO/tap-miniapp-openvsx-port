@@ -215,10 +215,18 @@ function requiredRecord(
   value: unknown,
   label: string,
 ): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${label} must be an object.`);
   }
-  return value as Record<string, unknown>;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 function requiredString(value: unknown, label: string): string {
@@ -717,14 +725,27 @@ async function packGeneratedPackage(
     ['pack', '--json', '--ignore-scripts', '--pack-destination', destination],
     generatedRoot,
   );
-  const parsed = JSON.parse(result) as Array<{ filename?: string }>;
-  const filename = parsed[0]?.filename;
+  const filename = npmPackFilename(result);
   if (!filename) throw new Error('npm pack did not report its tarball name.');
   const packed = path.join(destination, filename);
   if (packed !== outputTarball) {
     await rm(outputTarball, { force: true });
     await rename(packed, outputTarball);
   }
+}
+
+function npmPackFilename(result: string): string | undefined {
+  const parsed = JSON.parse(result) as unknown;
+  const entry = isUnknownArray(parsed)
+    ? parsed[0]
+    : isRecord(parsed)
+      ? Object.values(parsed)[0]
+      : undefined;
+  if (!isRecord(entry)) return undefined;
+  const filename = entry.filename;
+  return typeof filename === 'string' && filename.length > 0
+    ? filename
+    : undefined;
 }
 
 function run(command: string, args: string[], cwd: string): Promise<string> {
