@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  adm-zip@<0.6.0: 0.6.0
+
 importers:
   .:
     dependencies:
@@ -1591,12 +1594,12 @@ packages:
     engines: { node: '>=0.4.0' }
     hasBin: true
 
-  adm-zip@0.5.10:
+  adm-zip@0.6.0:
     resolution:
       {
-        integrity: sha512-x0HvcHqVJNTPk/Bw8JbLWlWoo6Wwnsug0fnYYro1HBrjxZ3G7/AZk7Ahv8JwDe1uIcz8eBqvu86FuF1POiG7vQ==,
+        integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==,
       }
-    engines: { node: '>=6.0' }
+    engines: { node: '>=14.0' }
 
   ajv-draft-04@1.0.0:
     resolution:
@@ -2978,7 +2981,7 @@ snapshots:
       '@module-federation/managers': 2.8.0
       '@module-federation/sdk': 2.8.0
       '@module-federation/third-party-dts-extractor': 2.8.0
-      adm-zip: 0.5.10
+      adm-zip: 0.6.0
       isomorphic-ws: 5.0.0(ws@8.21.0)
       typescript: 5.9.3
       undici: 7.28.0
@@ -3799,7 +3802,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  adm-zip@0.5.10: {}
+  adm-zip@0.6.0: {}
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
